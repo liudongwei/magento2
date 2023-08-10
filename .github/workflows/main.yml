@@ -1,0 +1,60 @@
+name: GitHub Actions for staging with Adobe Commerce
+on:
+  push:
+    tags:
+      - 'release/**'
+      # eg:
+      # release/Integration/v0.0.1
+      # release/staging/v0.0.1
+jobs:
+  Determine-Environment:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.extract_environment.outputs.environment }}
+    steps:
+      - name: Extract environment name
+        id: extract_environment
+        run: |
+          env_name=$(echo "${{ github.ref_name }}" | cut -d'/' -f2  | tr -d '\n')
+          echo $env_name
+          if [[ "$env_name" =~ ^(Integration|Integration2|staging|production)$ ]]; then 
+            echo "environment=$env_name" >> "$GITHUB_OUTPUT"
+          else
+            exit 1
+          fi
+
+  Deploy-To-Magento:
+    needs: Determine-Environment
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ needs.Determine-Environment.outputs.environment }} 
+    steps:
+      - name: Magento environment
+        run: echo "${{ needs.Determine-Environment.outputs.environment }}"
+      - name: Check out repository code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Set new git remote URL for magento
+        run: git remote add magento ${{ secrets.MAGENTO_GIT_USER }}@${{ secrets.MAGENTO_GIT_HOSTNAME }}:${{ secrets.MAGENTO_REPO_URL }}
+      - name: Setup SSH keys for magento
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.MAGENTO_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          echo "${{ secrets.MAGENTO_SSH_PUBLIC_KEY }}" > ~/.ssh/id_rsa.pub
+          chmod 400 ~/.ssh/id_rsa
+          ssh-keyscan ${{ secrets.MAGENTO_GIT_HOSTNAME }} >> ~/.ssh/known_hosts 
+          git config --global user.email "962823142@qq.com"
+          git config --global user.name "qiang" 
+          git config --global core.sshCommand "ssh -i ~/.ssh/id_rsa -F /dev/null"
+      - name: Write SSH config
+        run: |
+          cat > ~/.ssh/config <<EOF
+          Host magento
+            HostName ${{ secrets.MAGENTO_GIT_HOSTNAME }}
+            User ${{ secrets.MAGENTO_GIT_USER }}
+            IdentityFile ~/.ssh/id_rsa.pub
+            IdentitiesOnly yes
+          EOF
+      - name: Push tagged commit to magento, to a specific branch based on GitHub tag naming
+        run: git push magento ${{ github.sha }}:${{ needs.Determine-Environment.outputs.environment }}
