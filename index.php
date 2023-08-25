@@ -1,5 +1,6 @@
 <?php
 
-//echo "Hello, World.";
+echo "Hello, World.";
+echo "<br/>修复bug001";
 
-phpinfo();
+// phpinfo();
